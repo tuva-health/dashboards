@@ -5,7 +5,7 @@ Two complementary data sources both live under the Tuva project:
   - Clinical measures (adh_*, cqm_*, nqf_*, supd) come from
     `quality_measures.summary_long` — one row per (person_id, measure_id)
     with denominator / numerator / exclusion flags.
-  - AHRQ Prevention Quality Indicators come from `ahrq_measures.pqi_rate`
+  - AHRQ Prevention Quality Indicators come from `ahrq_quality_indicators.pqi_rate`
     (rolled-up rate) plus the `pqi_denom_long` and `pqi_num_long` row-level
     tables.
 
@@ -26,7 +26,7 @@ from tuva_dash.config import get_settings
 log = logging.getLogger(__name__)
 
 CLINICAL_SCHEMA = "quality_measures"
-AHRQ_SCHEMA = "ahrq_measures"
+AHRQ_SCHEMA = "ahrq_quality_indicators"
 SEMANTIC_SCHEMA = "semantic_layer"
 
 

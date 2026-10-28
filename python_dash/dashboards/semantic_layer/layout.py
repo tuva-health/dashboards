@@ -4,8 +4,8 @@ The PBI .pbit file for this dashboard is a blank report — its sole purpose
 is to publish the unified semantic model that the other dashboards
 consume. Rather than mirror an empty page, this Dash version is a useful
 *model browser*: a single-screen overview of every table, its row count,
-its freshness, its columns, and the inferred relationships across the
-22 facts and dimensions.
+its freshness, its columns, and the inferred relationships across its facts and
+dimensions (8 dimensions and 11 facts in semantic layer 1.0).
 """
 
 from __future__ import annotations
@@ -29,35 +29,39 @@ _COLUMNS = LazyFrame(queries.load_columns)
 
 # -- relationship graph ------------------------------------------------------
 
-# Inferred from naming conventions in the semantic_layer dbt package:
-# fact_* tables join to the dim_* tables that share a *_sk column.
-# Each tuple is (fact_table, dim_table, join_key).
+# Inferred from naming conventions in the semantic_layer dbt package (1.0):
+# fact_* tables join to the dim_* tables that share a key column. Member
+# months join on Core's `member_month_id` where a fact carries it; the
+# encounter-grain facts carry only the deprecated person-and-month
+# `member_month_sk`, so their member-month join is the composite natural key,
+# with the month derived from the encounter's start date. That join is many to
+# many where a person holds two coverage rows (payers or plans) in one month.
+# 1.0 retired dim_condition, fact_member_condition_bridge and
+# fact_expected_values. Each tuple is (fact_table, dim_table, join_key).
 _RELATIONSHIPS = [
     ("fact_member_months", "dim_member", "person_id"),
     ("fact_member_months", "dim_data_source", "data_source"),
+    ("fact_member_months", "dim_member_months", "member_month_id"),
     ("fact_encounters", "dim_member", "person_id"),
     ("fact_encounters", "dim_encounter_group", "encounter_group_sk"),
     ("fact_encounters", "dim_encounter_type", "encounter_type_sk"),
-    ("fact_encounters", "dim_member_months", "member_month_sk"),
+    ("fact_encounters", "dim_member_months", "person_id + data_source + yyyymm(encounter_start_date)"),
     ("fact_claims", "dim_member", "person_id"),
     ("fact_claims", "dim_encounter_group", "encounter_group_sk"),
     ("fact_claims", "dim_encounter_type", "encounter_type_sk"),
     ("fact_claims", "dim_service_category", "service_category_sk"),
-    ("fact_claims", "dim_member_months", "member_month_sk"),
+    ("fact_claims", "dim_member_months", "member_month_id"),
     ("fact_admissions", "dim_member", "person_id"),
-    ("fact_admissions", "dim_member_months", "member_month_sk"),
+    ("fact_admissions", "dim_member_months", "person_id + data_source + yyyymm(admit_date)"),
     ("fact_ed_visits", "dim_member", "person_id"),
-    ("fact_ed_visits", "dim_member_months", "member_month_sk"),
+    ("fact_ed_visits", "dim_member_months", "person_id + data_source + yyyymm(encounter_start_date)"),
     ("fact_pharmacy_claims", "dim_member", "person_id"),
+    ("fact_pharmacy_claims", "dim_member_months", "member_month_id"),
     ("fact_quality_measures", "dim_member", "person_id"),
     ("fact_risk_scores", "dim_member", "person_id"),
     ("fact_risk_factors", "dim_member", "person_id"),
     ("fact_hcc_gaps", "dim_member", "person_id"),
-    ("fact_member_condition_bridge", "dim_member", "person_id"),
-    ("fact_member_condition_bridge", "dim_condition", "condition_sk"),
     ("fact_encounter_service_bridge", "dim_service_category", "service_category_sk"),
-    ("fact_expected_values", "dim_member_months", "member_month_sk"),
-    ("fact_expected_values", "dim_service_category", "service_category_sk"),
 ]
 
 

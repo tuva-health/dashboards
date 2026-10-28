@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.express as px
 from dash import dash_table, dcc, html
 
-from tuva_dash.components import kpi_card, kpi_row, page_shell
+from tuva_dash.components import kpi_card, kpi_row, no_data_message, page_shell
 from tuva_dash.config import get_settings
 
 from . import queries
@@ -23,7 +23,7 @@ def _empty_message() -> dbc.Alert:
     build, so we surface that specifically rather than blaming LOAD_DATA.
     """
     if not get_settings().load_data:
-        return _empty_message()
+        return no_data_message()
     return dbc.Alert(
         [
             html.Strong("Benchmarks schema not loaded. "),

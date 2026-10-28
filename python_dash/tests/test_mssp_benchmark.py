@@ -10,9 +10,11 @@ assigned members only, in the latest performance year with a projection
 
 from __future__ import annotations
 
+import logging
 import math
 
 import dash_bootstrap_components as dbc
+import pandas as pd
 import pytest
 from dash import dash_table, dcc, html
 
@@ -48,19 +50,21 @@ def _find(component, cls):
 
 # -- queries -----------------------------------------------------------------
 
-def test_member_months_do_not_depend_on_the_surrogate_key(full_db):
+def test_member_months_join_attribution_on_member_month_id(full_db):
     mm = queries.load_member_months()
     assert len(mm) == N_MEMBER_MONTHS
+    # Semantic layer 1.0 deprecates member_month_sk; nothing reads it.
     assert "member_month_sk" not in mm.columns
-    assert {"person_id", "year_month"} <= set(mm.columns)
+    assert mm["member_month_id"].is_unique
+    assert mm["payer_attributed_provider_practice"].notna().all()
 
 
-def test_member_month_benchmark_joins_one_to_one_on_the_natural_key(full_db):
+def test_member_month_benchmark_joins_one_to_one_on_member_month_id(full_db):
     bench = queries.load_member_month_benchmark()
     assert len(bench) == N_MEMBER_MONTHS
-    # The fact carries the surrogate key for reference; the join uses the natural key.
-    assert bench["member_month_sk"].is_unique
-    assert not bench.duplicated(["person_id", "year_month"]).any()
+    assert "member_month_sk" not in bench.columns
+    assert benchmark.JOIN_KEYS == ["member_month_id"]
+    assert bench["member_month_id"].is_unique
     joined = benchmark.merge_benchmark(queries.load_member_months(), bench)
     assert len(joined) == N_MEMBER_MONTHS
     assert joined["flat_benchmark_pmpm"].notna().all()
@@ -71,10 +75,26 @@ def test_member_month_benchmark_joins_one_to_one_on_the_natural_key(full_db):
     assert joined["risk_adjusted_benchmark_pmpm_capped"].isna().sum() == 4
 
 
-def test_benchmark_renders_when_member_months_lack_the_surrogate_key(legacy_db):
+def test_repeated_benchmark_key_is_read_once_and_logged(caplog):
+    mm = pd.DataFrame({"member_month_id": ["A", "B"], "total_paid": [100.0, 200.0]})
+    bench = pd.DataFrame({
+        "member_month_id": ["A", "A", "B"],
+        "flat_benchmark_pmpm": [1000.0, 9999.0, 1000.0],
+    })
+    with caplog.at_level(logging.WARNING, logger=benchmark.__name__):
+        merged = benchmark.merge_benchmark(mm, bench)
+    assert len(merged) == 2
+    assert merged.set_index("member_month_id").loc["A", "flat_benchmark_pmpm"] == 1000.0
+    assert "repeats member_month_id" in caplog.text
+
+
+def test_split_coverage_member_months_do_not_fan_out(split_coverage_db):
+    # Two 1.0 member months (two plans) under P1 in 202601, each with its own
+    # benchmark row: each member month is kept once and counts as one MM.
     mm = queries.load_member_months()
-    assert len(mm) == N_MEMBER_MONTHS  # the existing view is intact
+    assert len(mm) == N_MEMBER_MONTHS + 1
     joined = benchmark.merge_benchmark(mm, queries.load_member_month_benchmark())
+    assert len(joined) == N_MEMBER_MONTHS + 1
     assert joined["flat_benchmark_pmpm"].notna().all()
     assert layout.build_layout() is not None
     assert "BENCH-T26" in str(layout._render_aco_panel())
@@ -82,8 +102,10 @@ def test_benchmark_renders_when_member_months_lack_the_surrogate_key(legacy_db):
     assert len(_find(kpis, dbc.Card)) == 5
     table = _find(practice_section, dash_table.DataTable)[0]
     by_practice = {r["Practice"]: r for r in table.data}
+    # Practice A, PY2026: P1 1600 x 2 plus the zero-paid second plan month and
+    # P2 500 x 2, so 4200 over five member months (840 PMPM) against 1000.
     assert by_practice["Practice A"]["Benchmark PMPM"] == pytest.approx(1000.0)
-    assert by_practice["Practice A"]["Variance"] == pytest.approx(50.0)
+    assert by_practice["Practice A"]["Variance"] == pytest.approx(-160.0)
 
 
 def test_absent_benchmark_tables_return_empty_frames(no_benchmark_db):

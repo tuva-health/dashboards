@@ -1,7 +1,7 @@
 """Layout + callbacks for the Cost Drivers dashboard.
 
 PBI structure (3 pages):
-  - Summary: KPIs, Year + Chronic Conditions slicers, two pivots
+  - Summary: KPIs, Year + CMS chronic conditions slicers, two pivots
     (Utilization Metrics by Encounter, PMPM by Service Category)
   - Encounter Grain: row-level encounter table
   - Claim Line Grain: row-level claim line table
@@ -14,6 +14,8 @@ import pandas as pd
 from dash import Input, Output, callback, dash_table, dcc, html
 
 from tuva_dash.components import kpi_card, kpi_row, no_data_message, page_shell
+from tuva_dash.conditions import LABEL as CONDITIONS_LABEL
+from tuva_dash.conditions import SOURCE_TABLE as CONDITIONS_TABLE
 from tuva_dash.lazy import LazyFrame
 
 from . import queries
@@ -265,7 +267,7 @@ def build_layout() -> html.Div:
         [
             dbc.Col(
                 [
-                    html.Label("Chronic conditions (members must have ALL):",
+                    html.Label(f"{CONDITIONS_LABEL} (members must have ALL):",
                                className="small text-muted"),
                     dcc.Dropdown(
                         id="cd-condition-filter",
@@ -317,7 +319,7 @@ def build_layout() -> html.Div:
     return page_shell(
         title="Cost Drivers",
         subtitle=(
-            "Cost and utilization filtered by chronic-condition cohort. "
+            "Cost and utilization filtered by a CMS chronic-condition cohort. "
             "Pick conditions to see PMPM and PKPY for members who carry all of them."
         ),
         body=body,
@@ -326,8 +328,7 @@ def build_layout() -> html.Div:
             "semantic_layer.fact_claims",
             "semantic_layer.fact_encounters",
             "semantic_layer.fact_admissions",
-            "semantic_layer.fact_member_condition_bridge",
-            "semantic_layer.dim_condition",
+            CONDITIONS_TABLE,
             "semantic_layer.dim_service_category",
             "semantic_layer.dim_encounter_group",
             "semantic_layer.dim_encounter_type",

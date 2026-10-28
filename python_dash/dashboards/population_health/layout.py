@@ -12,6 +12,8 @@ import plotly.express as px
 from dash import dash_table, dcc, html
 
 from tuva_dash.components import kpi_card, kpi_row, no_data_message, page_shell
+from tuva_dash.conditions import LABEL as CONDITIONS_LABEL
+from tuva_dash.conditions import SOURCE_TABLE as CONDITIONS_TABLE
 from tuva_dash.lazy import LazyFrame
 
 from . import queries
@@ -151,7 +153,7 @@ def _overview_tab() -> html.Div:
     fig_sex = px.pie(sex_pie, names="sex", values="members", title="Members by sex")
     fig_sex.update_layout(height=340)
 
-    # Chronic conditions × age group pivot
+    # CMS chronic conditions × age group pivot
     if not _CONDITIONS.empty:
         cc = _CONDITIONS.merge(_MEMBERS[["person_id", "age_group"]], on="person_id", how="left")
         pivot = (
@@ -185,7 +187,7 @@ def _overview_tab() -> html.Div:
             dbc.Col(dcc.Graph(figure=fig_age), md=8),
             dbc.Col(dcc.Graph(figure=fig_sex), md=4),
         ], className="mb-3"),
-        html.H5("Chronic conditions by age group"),
+        html.H5(f"{CONDITIONS_LABEL} by age group"),
         cc_table,
         html.H5("Top members by total paid", className="mt-3"),
         dash_table.DataTable(
@@ -391,10 +393,14 @@ def _pharmacy_tab() -> html.Div:
         return html.Div([no_data_message()], className="pt-3")
 
     total_paid = float(_PHARMACY["paid_amount"].sum())
-    generic_opp = float(_PHARMACY["generic_available_total_opportunity"].fillna(0).sum())
+    # Semantic layer 1.0 retired the generic-opportunity fields on
+    # fact_pharmacy_claims with no replacement; a 1.0 source for this card is
+    # backlog TUVA-136.
+    generic_card = kpi_card("Generic Switching Opportunity", "—",
+                            sub="Not in semantic layer 1.0")
     cards = kpi_row([
         kpi_card("Total Pharmacy Paid", _money(total_paid)),
-        kpi_card("Generic Switching Opportunity", _money(generic_opp)),
+        generic_card,
         kpi_card("Pharmacy Claims", f"{len(_PHARMACY):,}"),
     ])
 
@@ -541,14 +547,12 @@ def build_layout() -> html.Div:
         tuva_tables=[
             "semantic_layer.fact_member_months",
             "semantic_layer.dim_member",
-            "semantic_layer.fact_member_condition_bridge",
-            "semantic_layer.dim_condition",
+            CONDITIONS_TABLE,
             "semantic_layer.fact_encounters",
             "semantic_layer.fact_admissions",
             "semantic_layer.fact_ed_visits",
             "semantic_layer.fact_pharmacy_claims",
             "semantic_layer.fact_risk_scores",
-            "semantic_layer.fact_risk_factors",
-            "ahrq_measures.pqi_rate",
+            "ahrq_quality_indicators.pqi_rate",
         ],
     )

@@ -78,7 +78,7 @@ def test_smoke_without_benchmark_facts(dash_app, no_benchmark_db):
     _smoke(dash_app, {("mssp-benchmark-year", "value"): None})
 
 
-def test_smoke_with_legacy_member_months(dash_app, legacy_db):
+def test_smoke_with_split_coverage_member_months(dash_app, split_coverage_db):
     _smoke(dash_app)
 
 

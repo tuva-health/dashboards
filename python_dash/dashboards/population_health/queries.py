@@ -6,13 +6,13 @@ import logging
 
 import pandas as pd
 
-from tuva_dash import run_query
+from tuva_dash import conditions, run_query
 from tuva_dash.config import get_settings
 
 log = logging.getLogger(__name__)
 
 SCHEMA = "semantic_layer"
-AHRQ_SCHEMA = "ahrq_measures"
+AHRQ_SCHEMA = "ahrq_quality_indicators"
 
 
 def _safe(sql: str, columns: list[str]) -> pd.DataFrame:
@@ -42,14 +42,8 @@ def load_members() -> pd.DataFrame:
 
 
 def load_member_conditions() -> pd.DataFrame:
-    s = get_settings()
-    sql = f"""
-        SELECT b.person_id, c.condition
-        FROM {s.qualified(SCHEMA, 'fact_member_condition_bridge')} b
-        LEFT JOIN {s.qualified(SCHEMA, 'dim_condition')} c
-            ON c.condition_sk = b.condition_sk
-    """
-    return _safe(sql, ["person_id", "condition"])
+    """CMS chronic conditions per member; see `tuva_dash.conditions`."""
+    return _safe(conditions.member_conditions_sql(get_settings()), conditions.COLUMNS)
 
 
 def load_encounters() -> pd.DataFrame:
@@ -76,20 +70,22 @@ def load_encounters() -> pd.DataFrame:
 
 def load_admissions() -> pd.DataFrame:
     s = get_settings()
-    sql = f"SELECT * FROM {s.qualified(SCHEMA, 'fact_admissions')}"
-    return _safe(sql, ["encounter_id", "person_id", "admit_date",
-                       "discharge_date", "length_of_stay",
-                       "index_admission_flag", "had_readmission_flag",
-                       "readmit_30_flag", "drg_description",
-                       "attending_provider_name"])
+    columns = ["encounter_id", "person_id", "admit_date",
+               "discharge_date", "length_of_stay",
+               "index_admission_flag", "had_readmission_flag",
+               "readmit_30_flag", "drg_description",
+               "attending_provider_name"]
+    sql = f"SELECT {', '.join(columns)} FROM {s.qualified(SCHEMA, 'fact_admissions')}"
+    return _safe(sql, columns)
 
 
 def load_ed_visits() -> pd.DataFrame:
     s = get_settings()
-    sql = f"SELECT * FROM {s.qualified(SCHEMA, 'fact_ed_visits')}"
-    return _safe(sql, ["encounter_id", "person_id", "ed_classification_description",
-                       "avoidable", "avoidable_description", "paid_amount",
-                       "claim_count"])
+    columns = ["encounter_id", "person_id", "ed_classification_description",
+               "avoidable", "avoidable_description", "paid_amount",
+               "claim_count"]
+    sql = f"SELECT {', '.join(columns)} FROM {s.qualified(SCHEMA, 'fact_ed_visits')}"
+    return _safe(sql, columns)
 
 
 def load_pharmacy() -> pd.DataFrame:
@@ -101,7 +97,6 @@ def load_pharmacy() -> pd.DataFrame:
         "dispensing_provider_name", "dispensing_date",
         "days_supply", "brand_name", "brand_vs_generic",
         "atc_1_name", "atc_2_name", "atc_3_name", "atc_4_name",
-        "generic_available", "generic_available_total_opportunity",
     ])
 
 

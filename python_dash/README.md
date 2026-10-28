@@ -28,9 +28,30 @@ python_dash/
 
 All eight dashboards are implemented end-to-end against the standard
 Tuva schemas (`semantic_layer.*`, `data_quality.*`, `quality_measures.*`,
-`ahrq_measures.*`). They render against any Tuva install, with graceful
+`ahrq_quality_indicators.*`). They render against any Tuva install, with graceful
 "data not loaded" alerts on tabs whose source tables are empty (e.g.
 `fact_risk_*` in synthetic builds, `benchmarks.*` which ships separately).
+
+### Semantic layer 1.0
+
+The dashboards read the Tuva semantic layer 1.0 (the standalone
+`semantic_layer` dbt package that Tuva Core 1.0 installs beside it). 1.0
+retired three relations and some pharmacy columns, deprecated one column
+and renamed one schema the dashboards used to read:
+
+| v0.18 | 1.0 | Where |
+| --- | --- | --- |
+| `dim_condition` + `fact_member_condition_bridge` (Tuva chronic conditions) | `chronic_conditions.cms_chronic_conditions_long` from the CMS Chronic Conditions 1.0 mart (`tuva-health/cms_chronic_conditions`), deduplicated to person × condition and labelled "CMS chronic conditions". The root project must install that package | Cost Drivers cohort filter, Population Health conditions-by-age table, MSSP ACO patient panel and patient chart |
+| `fact_expected_values` | No equivalent; only the Semantic Layer browser's relationship map listed it | Semantic Layer |
+| `member_month_sk` (person and month) | `member_month_id`, Core's key for person, member, month, payer, plan and data source. A person covered by two plans in one month is now two member months, so counts and PMPM denominators can rise where coverage splits (single-payer CCLF data rarely does) | MSSP ACO attribution and benchmark joins, Semantic Layer relationship map |
+| `fact_pharmacy_claims` generic-opportunity fields (`generic_available`, `generic_available_total_opportunity`, …) | No equivalent: retired in 1.0. The "Generic Switching Opportunity" card shows "—" (backlog TUVA-136) | Population Health pharmacy tab |
+| `ahrq_measures` schema | `ahrq_quality_indicators` (same `pqi_*` tables and columns) | MSSP ACO, Population Health and Quality Measures PQI views |
+
+The CMS chronic conditions use the CMS Chronic Conditions Warehouse
+definitions, not Tuva's retired ones, so condition names and membership
+differ from v0.18. Without the package the condition views show "no data"
+and the rest of each page is unchanged. `tuva_dash/conditions.py` holds the
+one query all three pages share.
 
 ## Setup
 
@@ -91,7 +112,7 @@ way.
 
 | Fact | Grain | Join |
 | --- | --- | --- |
-| `semantic_layer.fact_member_month_benchmark` | one row per member-month | one to one to `fact_member_months`; the fact carries both the surrogate key `member_month_sk` (`person_id \|\| '\|' \|\| year_month`) and the natural key `(person_id, year_month)`. The Dash app joins on the natural key, so only the benchmark elements depend on the new fact |
+| `semantic_layer.fact_member_month_benchmark` | one row per 1.0 member month (person, member, month, payer, plan and data source) | one to one to `fact_member_months` on `member_month_id`, which cms_mssp_connector carries from TUVA-127. The deprecated person-and-month `member_month_sk` is not unique under 1.0 and the Dash app does not read it. Only the benchmark elements depend on the new fact |
 | `semantic_layer.fact_benchmark_aco_quarter` | one row per ACO, performance year and reported quarter | to the member-month fact on `aco_id` and `performance_year`; the row flagged `is_current_projection` is the one each year's member rates were read from |
 
 Rate columns on `fact_member_month_benchmark`, each a PMPM for the
@@ -179,8 +200,8 @@ lacking the enrollment type rate.", so a screenshot is self-describing.
 
 To extend the Power BI MSSP ACO model the same way: import both tables,
 relate `fact_member_month_benchmark` to `fact_member_months` one to one
-(on `member_month_sk` where the semantic layer carries it, otherwise on
-`person_id` and `year_month`), write the benchmark
+on `member_month_id` (not on the deprecated `member_month_sk`), write the
+benchmark
 PMPM measures as `SUM(rate) / SUM(member_months)` filtered to rows where
 the rate is not blank, and read the ACO card from the
 `is_current_projection` rows of `fact_benchmark_aco_quarter`.
@@ -246,6 +267,23 @@ warehouse or credentials are needed.
 # from the python_dash/ directory, in the venv
 pip install pytest
 pytest
+# or, with uv (what CI runs)
+uv run --no-project --with-requirements requirements.txt --with pytest pytest
+```
+
+`tests/test_semantic_layer_1_0.py` checks that no dashboard query or page
+names a relation, column or schema Tuva 1.0 retired, and that no query
+selects `*` from a 1.0 relation still carrying the deprecated
+`member_month_sk`. CI (`.github/workflows/python-dash-tests.yml`) runs the
+whole suite, which needs no warehouse, on every pull request.
+
+To also run each ported page's queries against a real 1.0 build, point
+`TUVA_V1_DUCKDB` at one, for example the DuckDB that cms_mssp_connector's
+`scripts/dbt-local build` writes (with the CMS chronic conditions package
+installed, or the condition views come back empty and the check fails):
+
+```bash
+TUVA_V1_DUCKDB=/path/to/cms_mssp_connector_ci.duckdb uv run --no-project --with-requirements requirements.txt --with pytest pytest tests/test_semantic_layer_1_0.py
 ```
 
 ## Adding a new dashboard

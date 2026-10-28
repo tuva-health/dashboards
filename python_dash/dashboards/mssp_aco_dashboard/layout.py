@@ -22,6 +22,8 @@ import plotly.express as px
 from dash import Input, Output, callback, dash_table, dcc, html
 
 from tuva_dash.components import kpi_card, kpi_row, no_data_message, page_shell
+from tuva_dash.conditions import LABEL as CONDITIONS_LABEL
+from tuva_dash.conditions import SOURCE_TABLE as CONDITIONS_TABLE
 from tuva_dash.config import get_settings
 from tuva_dash.lazy import LazyFrame
 
@@ -731,7 +733,7 @@ def _render_patient(person_id):
             style_header={"fontWeight": "bold"},
             style_table={"overflowX": "auto"},
         ),
-        html.H6("Chronic conditions", className="mt-3 text-muted"),
+        html.H6(CONDITIONS_LABEL, className="mt-3 text-muted"),
         html.P(cond_list),
         html.H5("HCC gaps", className="mt-3"),
         (dash_table.DataTable(
@@ -953,11 +955,10 @@ def build_layout() -> html.Div:
             "semantic_layer.dim_member",
             "semantic_layer.fact_member_month_benchmark",
             "semantic_layer.fact_benchmark_aco_quarter",
-            "semantic_layer.fact_member_condition_bridge",
-            "semantic_layer.dim_condition",
+            CONDITIONS_TABLE,
             "semantic_layer.fact_hcc_gaps",
             "semantic_layer.fact_encounters",
-            "ahrq_measures.pqi_rate",
-            "ahrq_measures.pqi_denom_long",
+            "ahrq_quality_indicators.pqi_rate",
+            "ahrq_quality_indicators.pqi_denom_long",
         ],
     )

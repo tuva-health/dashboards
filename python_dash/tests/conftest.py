@@ -25,10 +25,10 @@ def no_benchmark_db_path(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="session")
-def legacy_db_path(tmp_path_factory) -> Path:
+def split_coverage_db_path(tmp_path_factory) -> Path:
     return build_duckdb(
-        tmp_path_factory.mktemp("duck") / "legacy.duckdb",
-        with_benchmark=True, with_surrogate_key=False,
+        tmp_path_factory.mktemp("duck") / "split_coverage.duckdb",
+        with_benchmark=True, with_split_coverage=True,
     )
 
 
@@ -70,9 +70,9 @@ def no_benchmark_db(monkeypatch, no_benchmark_db_path):
 
 
 @pytest.fixture
-def legacy_db(monkeypatch, legacy_db_path):
-    _point_at(monkeypatch, legacy_db_path)
-    yield legacy_db_path
+def split_coverage_db(monkeypatch, split_coverage_db_path):
+    _point_at(monkeypatch, split_coverage_db_path)
+    yield split_coverage_db_path
     _reset_caches()
 
 

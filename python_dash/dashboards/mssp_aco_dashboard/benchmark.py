@@ -3,12 +3,11 @@
 Pure pandas, no Dash and no warehouse: `layout.py` feeds these the lazily
 loaded frames, and the tests feed them a synthetic DuckDB.
 
-`semantic_layer.fact_member_month_benchmark` is one row per member-month,
-one to one with `fact_member_months`. It carries the surrogate key
-`member_month_sk` (`person_id || '|' || year_month`) and the natural key
-`(person_id, year_month)`; the dashboard joins on the natural key so that
-nothing outside the benchmark elements depends on the surrogate key being
-present in `fact_member_months`. Each row carries four benchmark rates:
+`semantic_layer.fact_member_month_benchmark` is one row per 1.0 member month,
+one to one with `fact_member_months` on Core's `member_month_id` (person,
+member, month, payer, plan and data source); the dashboard joins on it, not on
+the deprecated person-and-month `member_month_sk`. Each row carries four
+benchmark rates:
 flat, by enrollment type, risk-adjusted (uncapped), and risk-adjusted under
 the ACO's aggregate cap. A rate is NULL where the fact could not compute it
 — every rate when the year has no projection, the risk-adjusted rates when
@@ -40,12 +39,15 @@ score no rate uses; the dashboard falls back to it only without the fact.
 
 from __future__ import annotations
 
+import logging
 from typing import NamedTuple
 
 import pandas as pd
 
-SURROGATE_KEY = "member_month_sk"  # carried on the fact for reference
-JOIN_KEYS = ["person_id", "year_month"]  # the natural key the dashboard joins on
+log = logging.getLogger(__name__)
+
+# The key the benchmark fact shares with `fact_member_months`, unique in both.
+JOIN_KEYS = ["member_month_id"]
 UNATTRIBUTED = "(unattributed)"
 
 
@@ -111,19 +113,29 @@ def nullable_bool(value) -> bool | None:
 
 
 def merge_benchmark(member_months: pd.DataFrame, bench: pd.DataFrame) -> pd.DataFrame:
-    """Left-join the benchmark fact onto member months on `(person_id, year_month)`.
+    """Left-join the benchmark fact onto member months on `JOIN_KEYS`.
 
-    Every member-month is kept. A month the fact does not cover — or every
-    month, when the fact is absent and `bench` is the empty frame the safe
-    query returns — carries NULL rates and counts as excluded in `rollup`.
-    The rate columns are always present on the result.
+    Every member-month is kept, once. A month the fact does not cover — or
+    every month, when the fact is absent or predates `member_month_id`, and
+    `bench` is the empty frame the safe query returns — carries NULL rates
+    and counts as excluded in `rollup`. The rate columns are always present
+    on the result.
+
+    The fact is unique on `member_month_id`. Should it ever repeat a key, the
+    first row is read and a warning logged, rather than fanning out spend.
     """
     has_keys = all(k in member_months.columns for k in JOIN_KEYS) and all(
         k in bench.columns for k in JOIN_KEYS
     )
     if has_keys:
         extra = [c for c in bench.columns if c in JOIN_KEYS or c not in member_months.columns]
-        merged = member_months.merge(bench[extra], on=JOIN_KEYS, how="left")
+        rates = bench[extra]
+        if rates.duplicated(JOIN_KEYS).any():
+            log.warning(
+                "fact_member_month_benchmark repeats member_month_id; reading the first row"
+            )
+            rates = rates.drop_duplicates(JOIN_KEYS)
+        merged = member_months.merge(rates, on=JOIN_KEYS, how="left")
     else:
         merged = member_months.copy()
     for column in RATE_COLUMNS:

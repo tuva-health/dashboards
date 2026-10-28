@@ -5,7 +5,7 @@ Mirrors the 2 PBI pages:
   2. Measure Detail — members with open gaps for a chosen measure
 
 Combines clinical measures (`quality_measures.summary_long`) with AHRQ
-Prevention Quality Indicators (`ahrq_measures.pqi_rate`) so the dashboard
+Prevention Quality Indicators (`ahrq_quality_indicators.pqi_rate`) so the dashboard
 still has data even when the clinical measures aren't populated (common
 in synthetic Tuva data sets that lack meds/labs).
 """
@@ -388,9 +388,9 @@ def build_layout() -> html.Div:
         tuva_tables=[
             "quality_measures.summary_long",
             "quality_measures.summary_wide",
-            "ahrq_measures.pqi_rate",
-            "ahrq_measures.pqi_denom_long",
-            "ahrq_measures.pqi_num_long",
+            "ahrq_quality_indicators.pqi_rate",
+            "ahrq_quality_indicators.pqi_denom_long",
+            "ahrq_quality_indicators.pqi_num_long",
             "semantic_layer.dim_member",
             "semantic_layer.dim_member_months",
         ],

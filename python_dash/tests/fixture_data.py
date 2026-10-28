@@ -86,8 +86,10 @@ def _member_month_frames() -> dict[str, pd.DataFrame]:
     for pid, practice, provider, paid, etype, score, ratio, et_rate, ra_rate, assigned in MEMBERS:
         for year, ym in _member_months_of(pid):
             y = YEARS[year]
-            sk = f"{pid}|{ym}"
+            sk = f"{pid}|{ym}"  # 1.0 still carries the deprecated key
+            mm_id = f"{pid}|synthetic|{ym}|plan-1"
             fact_rows.append({
+                "member_month_id": mm_id,
                 "person_id": pid, "data_source": "synthetic", "year_month": ym,
                 "year_nbr": str(year), "member_month_sk": sk,
                 "patient_source_key": f"{pid}|synthetic", "member_months": 1,
@@ -95,7 +97,9 @@ def _member_month_frames() -> dict[str, pd.DataFrame]:
                 "normalized_risk_score": score if score is not None else 1.0,
             })
             dim_rows.append({
-                "person_id": pid, "year_month": ym, "payer": "synthetic",
+                "member_month_id": mm_id, "member_month_sk": sk,
+                "person_id": pid, "data_source": "synthetic",
+                "year_month": ym, "payer": "synthetic",
                 "payer_attributed_provider": provider,
                 "payer_attributed_provider_practice": practice,
                 "custom_attributed_provider": None,
@@ -107,7 +111,8 @@ def _member_month_frames() -> dict[str, pd.DataFrame]:
             capped = ra * y["cap"] if ra is not None else None
             by3 = score / ratio if score is not None and ratio is not None else None
             bench_rows.append({
-                "member_month_sk": sk, "person_id": pid, "data_source": "synthetic",
+                "member_month_id": mm_id, "member_month_sk": sk,
+                "person_id": pid, "data_source": "synthetic",
                 "patient_source_key": f"{pid}|synthetic", "year_month": ym,
                 "performance_year": year, "aco_id": "ACO-TEST", "is_assigned": assigned,
                 "enrollment_type": etype, "risk_score": score, "risk_ratio": ratio,
@@ -143,7 +148,54 @@ def _member_month_frames() -> dict[str, pd.DataFrame]:
         "dim_member_months": dim_mm,
         "dim_member": members,
         "fact_member_month_benchmark": pd.DataFrame(bench_rows),
+        "chronic_conditions.cms_chronic_conditions_long": _chronic_conditions_frame(),
     }
+
+
+# CMS chronic conditions, the 1.0 source of member conditions
+# (`tuva_dash.conditions`). The long table has one row per evidence event, so
+# P1's diabetes appears on two encounters and must come back once.
+CONDITIONS = {
+    "P1": ["Diabetes", "Heart Failure and Non-Ischemic Heart Disease"],
+    "P3": ["Diabetes"],
+}
+
+
+def _chronic_conditions_frame() -> pd.DataFrame:
+    rows = []
+    for pid, conditions in CONDITIONS.items():
+        for condition in conditions:
+            events = 2 if (pid, condition) == ("P1", "Diabetes") else 1
+            for n in range(events):
+                rows.append({
+                    "person_id": pid, "encounter_id": f"E-{pid}-{condition[:4]}-{n}",
+                    "encounter_start_date": f"2026-01-0{n + 1}",
+                    "chronic_condition_type": "chronic", "condition_category": "synthetic",
+                    "condition": condition, "data_source": "synthetic",
+                })
+    return pd.DataFrame(rows)
+
+
+# A second coverage row for P1 in 202601 (another plan): semantic layer 1.0
+# member months are per person, member, month, payer, plan and data source, so
+# two `member_month_id`s share one person and month. The benchmark fact, built
+# on the same member months, has a row for each.
+SPLIT_PERSON, SPLIT_MONTH = "P1", "202601"
+
+
+def _add_split_coverage(frames: dict[str, pd.DataFrame]) -> None:
+    def second(frame: pd.DataFrame) -> pd.DataFrame:
+        row = frame[(frame["person_id"] == SPLIT_PERSON)
+                    & (frame["year_month"] == SPLIT_MONTH)].copy()
+        if "member_month_id" in row.columns:
+            row["member_month_id"] = f"{SPLIT_PERSON}|synthetic|{SPLIT_MONTH}|plan-2"
+        if "total_paid" in row.columns:
+            row["total_paid"] = 0.0
+        return pd.concat([frame, row], ignore_index=True)
+
+    for name in ("fact_member_months", "dim_member_months", "fact_member_month_benchmark"):
+        if name in frames:
+            frames[name] = second(frames[name])
 
 
 def _aco_quarter_frame() -> pd.DataFrame:
@@ -188,24 +240,23 @@ def _aco_quarter_frame() -> pd.DataFrame:
     ])
 
 
-def build_duckdb(path: Path, *, with_benchmark: bool, with_surrogate_key: bool = True) -> Path:
-    """`with_surrogate_key=False` mimics a `fact_member_months` that predates
-    `member_month_sk`; the benchmark fact still carries it."""
+def build_duckdb(path: Path, *, with_benchmark: bool, with_split_coverage: bool = False) -> Path:
+    """`with_split_coverage=True` adds a second 1.0 member month under one
+    person and month; see `_add_split_coverage`."""
     frames = _member_month_frames()
     if with_benchmark:
         frames["fact_benchmark_aco_quarter"] = _aco_quarter_frame()
     else:
         frames.pop("fact_member_month_benchmark")
-    if not with_surrogate_key:
-        frames["fact_member_months"] = frames["fact_member_months"].drop(
-            columns=["member_month_sk"]
-        )
+    if with_split_coverage:
+        _add_split_coverage(frames)
     con = duckdb.connect(str(path))
     try:
-        con.execute("CREATE SCHEMA semantic_layer")
         for name, frame in frames.items():
+            qualified = name if "." in name else f"semantic_layer.{name}"
+            con.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified.split('.')[0]}")
             con.register("src", frame)
-            con.execute(f"CREATE TABLE semantic_layer.{name} AS SELECT * FROM src")
+            con.execute(f"CREATE TABLE {qualified} AS SELECT * FROM src")
             con.unregister("src")
     finally:
         con.close()
